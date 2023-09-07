@@ -1,0 +1,93 @@
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+from scipy.optimize import minimize
+from prettytable import PrettyTable
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Étape 1 : Lire le fichier Excel
+file_path = "C:\\Users\\Valentin Bordeau\\Downloads\\MASTER FMI\\THESE\\ptf1.xlsx" 'change with your path file
+df = pd.read_excel(file_path, header=None)
+
+# Récupérer les noms des stocks
+stock_names = df.iloc[0, 1:].values  
+
+# Supprimez la première ligne pour ne traiter que les données numériques
+df = df.drop(0)
+df.dropna(inplace=True)
+
+# Étape 2 : Convertir en liste de listes
+data_from_excel = df.values.tolist()
+
+# Séparation des données
+inflation_data = np.array(data_from_excel)[:, 0] 
+stock_returns = np.array(data_from_excel)[:, 1:].T 
+
+n = stock_returns.shape[0]  # Nombre de stocks
+
+# Entraîner des modèles de régression linéaire pour chaque stock
+predicted_returns = []
+
+for stock in range(n):
+    X = inflation_data.reshape(-1, 1)
+    y = stock_returns[stock]
+    
+    model = LinearRegression().fit(X, y)
+    
+    # Prédiction des rendements pour la prochaine période en fonction des données sur l'inflation
+    predicted_return = model.predict([[0.08]])
+    predicted_returns.append(predicted_return[0])
+
+predicted_returns = np.array(predicted_returns)
+
+# Calcul de la matrice de covariance à partir des données historiques
+cov_matrix = np.cov(stock_returns)
+
+# Définir le rendement attendu de chaque stock en fonction des rendements prédits
+ri = predicted_returns
+
+
+# Définir les limites pour les poids des actions dans le portefeuille
+m = 0.01
+M = 0.2
+
+# Optimisation du portefeuille
+def objective(u):
+    portfolio_return = np.sum(predicted_returns * u)
+    portfolio_risk = np.sqrt(np.dot(u.T, np.dot(cov_matrix, u)))
+    return -portfolio_return / portfolio_risk
+
+
+cons = ({'type': 'eq', 'fun': lambda u: np.sum(u) - 1})
+
+bounds = tuple((m, M) for stock in range(n))
+
+initial = np.array([1./n for stock in range(n)])
+
+solution = minimize(objective, initial, method='SLSQP', bounds=bounds, constraints=cons)
+
+# Une fois que vous avez obtenu la solution :
+optimal_weights = solution.x
+
+# Calculez le rendement attendu du portefeuille
+expected_return = np.sum(ri * optimal_weights)
+
+# Calculez le risque (écart type) du portefeuille
+portfolio_risk = np.sqrt(np.dot(optimal_weights.T, np.dot(cov_matrix, optimal_weights)))
+
+# Création du tableau
+table = PrettyTable()
+table.field_names = ["Entreprise", "Poids optimal (%)"]
+
+for stock, weight in zip(stock_names, optimal_weights):
+    table.add_row([stock, f"{weight * 100:.2f}"])
+
+print(table)
+print(f"Rendement attendu du portefeuille optimisé: {expected_return * 100:.2f}%")
+print(f"Risque (écart type) du portefeuille optimisé: {portfolio_risk * 100:.2f}%")
+
+plt.figure(figsize=(12, 10))
+sns.heatmap(cov_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5)
+plt.title('Matrice de covariance')
+plt.show()
